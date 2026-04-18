@@ -32,6 +32,16 @@ game_log["nodes_per_move"] = (
     game_log["final_nodes_player_one"] + game_log["final_nodes_player_two"]
 ) / game_log["total_moves"]
 
+move_log = move_log.sort_values(["game_tuple_id", "game_id", "move_number"]).copy()
+
+move_log["nodes_visited_per_move"] = move_log.groupby(
+    ["game_tuple_id", "game_id", "player"]
+)["nodes_visited_running_sum"].diff()
+
+move_log["nodes_visited_per_move"] = move_log["nodes_visited_per_move"].fillna(
+    move_log["nodes_visited_running_sum"]
+)
+
 # -----------------------------
 # SIDEBAR FILTERS
 # -----------------------------
@@ -268,12 +278,12 @@ with tab2:
     with c2:
         if not filtered_move_log.empty:
             fig, ax = plt.subplots()
-            filtered_move_log.groupby("algorithm")["nodes_visited_running_sum"].mean().plot(
+            filtered_move_log.groupby("algorithm")["nodes_visited_per_move"].mean().plot(
                 kind="bar", ax=ax
             )
-            ax.set_title("Average Nodes Visited by Algorithm")
+            ax.set_title("Average Nodes Explored per Move by Algorithm")
             ax.set_xlabel("Algorithm")
-            ax.set_ylabel("Nodes")
+            ax.set_ylabel("Nodes per Move")
             st.pyplot(fig)
         else:
             st.warning("No move data available for current filters.")
@@ -407,35 +417,66 @@ with tab4:
     selected_moves = move_log[
         (move_log["game_tuple_id"] == selected_row["game_tuple_id"]) &
         (move_log["game_id"] == selected_row["game_id"])
-    ]
+    ].sort_values("move_number")
 
     st.write("### Selected Game Summary")
     st.dataframe(selected_game_summary, use_container_width=True)
 
     g1, g2 = st.columns(2)
 
+    st.write("### Nodes Explored per Move")
+
+    fig, ax = plt.subplots()
+
+    for player_name in ["One", "Two"]:
+        subset = selected_moves[selected_moves["player"] == player_name]
+        ax.bar(
+            subset["move_number"],
+            subset["nodes_visited_per_move"],
+            label=f"Player {player_name}",
+            alpha=0.8
+        )
+
+    ax.set_title("Nodes Explored per Move by Player")
+    ax.set_xlabel("Move Number")
+    ax.set_ylabel("Nodes per Move")
+    ax.legend()
+    st.pyplot(fig)
+
     with g1:
         fig, ax = plt.subplots()
-        ax.plot(
-            selected_moves["move_number"],
-            selected_moves["duration_seconds"],
-            marker="o"
-        )
-        ax.set_title("Move Duration Over Time")
+
+        for player_name in ["One", "Two"]:
+            subset = selected_moves[selected_moves["player"] == player_name]
+            ax.plot(
+                subset["move_number"],
+                subset["duration_seconds"],
+                marker="o",
+                label=f"Player {player_name}"
+            )
+
+        ax.set_title("Move Duration Over Time by Player")
         ax.set_xlabel("Move Number")
         ax.set_ylabel("Duration (sec)")
+        ax.legend()
         st.pyplot(fig)
 
     with g2:
         fig, ax = plt.subplots()
-        ax.plot(
-            selected_moves["move_number"],
-            selected_moves["nodes_visited_running_sum"],
-            marker="o"
-        )
-        ax.set_title("Nodes Visited Running Sum")
+
+        for player_name in ["One", "Two"]:
+            subset = selected_moves[selected_moves["player"] == player_name]
+            ax.plot(
+                subset["move_number"],
+                subset["nodes_visited_running_sum"],
+                marker="o",
+                label=f"Player {player_name}"
+            )
+
+        ax.set_title("Cumulative Node Exploration by Player")
         ax.set_xlabel("Move Number")
-        ax.set_ylabel("Nodes")
+        ax.set_ylabel("Cumulative Nodes")
+        ax.legend()
         st.pyplot(fig)
 
     if show_advanced:
@@ -444,16 +485,17 @@ with tab4:
             st.dataframe(selected_moves, use_container_width=True)
 
             fig, ax = plt.subplots()
-            for algo in selected_moves["algorithm"].unique():
-                subset = selected_moves[selected_moves["algorithm"] == algo]
+
+            for player_name in ["One", "Two"]:
+                subset = selected_moves[selected_moves["player"] == player_name]
                 ax.plot(
                     subset["move_number"],
                     subset["duration_seconds"],
                     marker="o",
-                    label=algo
+                    label=f"Player {player_name}"
                 )
 
-            ax.set_title("Algorithm Move Time Comparison")
+            ax.set_title("Move Duration Comparison by Player")
             ax.set_xlabel("Move Number")
             ax.set_ylabel("Duration (sec)")
             ax.legend()
