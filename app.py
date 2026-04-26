@@ -228,13 +228,32 @@ with tab1:
 
     with c2:
         fig, ax = plt.subplots()
-        (filtered_game_log["winner_algorithm"].value_counts(normalize=True) * 100).plot(
-            kind="bar", ax=ax
-        )
-        ax.set_title("Win Percentage by Algorithm")
+
+        games_played = pd.concat([
+            filtered_game_log["player_one_algorithm"],
+            filtered_game_log["player_two_algorithm"]
+        ]).value_counts()
+
+        wins = filtered_game_log[
+            filtered_game_log["winner_algorithm"] != "Draw"
+        ]["winner_algorithm"].value_counts()
+
+        wins = wins.reindex(games_played.index, fill_value=0)
+
+        win_rate = ((wins / games_played) * 100).sort_values(ascending=False)
+
+        win_rate.plot(kind="bar", ax=ax)
+
+        ax.set_title("Win Rate by Algorithm")
         ax.set_xlabel("Algorithm")
-        ax.set_ylabel("Percentage (%)")
+        ax.set_ylabel("Win Rate (%)")
+
         st.pyplot(fig)
+
+        st.caption(
+            "Win rate is calculated based on games each algorithm participated in. "
+            "Self-play matchups result in about 50% because the same algorithm competes against itself."
+        )
 
     c3, c4 = st.columns(2)
 
@@ -277,28 +296,58 @@ with tab2:
 
     with c2:
         if not filtered_move_log.empty:
-            fig, ax = plt.subplots()
-            filtered_move_log.groupby("algorithm")["nodes_visited_per_move"].mean().plot(
-                kind="bar", ax=ax
-            )
-            ax.set_title("Average Nodes Explored per Move by Algorithm")
-            ax.set_xlabel("Algorithm")
-            ax.set_ylabel("Nodes per Move")
-            st.pyplot(fig)
+
+            search_moves = filtered_move_log[
+                filtered_move_log["algorithm"].isin(["mcts", "minimax"])
+            ]
+
+            if search_moves.empty:
+                st.info("No search-based algorithm data available for current filters.")
+            else:
+                fig, ax = plt.subplots()
+
+                search_moves.groupby("algorithm")["nodes_visited_per_move"].mean().plot(
+                    kind="bar", ax=ax
+                )
+
+                ax.set_title("Average Nodes Explored per Move by Search Algorithm")
+                ax.set_xlabel("Algorithm")
+                ax.set_ylabel("Nodes per Move")
+
+                st.pyplot(fig)
+
+                st.caption(
+                    "Random is excluded because it does not perform tree search."
+                )
         else:
             st.warning("No move data available for current filters.")
 
     c3, c4 = st.columns(2)
 
+    # Define search-based moves (exclude Random)
+    search_moves = filtered_move_log[
+        filtered_move_log["algorithm"].isin(["mcts", "minimax"])
+    ]
+
     with c3:
-        fig, ax = plt.subplots()
-        filtered_game_log.groupby("player_one_algorithm")["nodes_per_move"].mean().plot(
-            kind="bar", ax=ax
-        )
-        ax.set_title("Efficiency: Nodes per Move")
-        ax.set_xlabel("Player One Algorithm")
-        ax.set_ylabel("Nodes per Move")
-        st.pyplot(fig)
+        if search_moves.empty:
+            st.info("No search-based algorithm data available for current filters.")
+        else:
+            fig, ax = plt.subplots()
+
+            search_moves.groupby("algorithm")["nodes_visited_per_move"].mean().plot(
+                kind="bar", ax=ax
+            )
+
+            ax.set_title("Efficiency: Nodes per Move (Search Algorithms)")
+            ax.set_xlabel("Algorithm")
+            ax.set_ylabel("Nodes per Move")
+
+            st.pyplot(fig)
+
+            st.caption(
+                "Random is excluded because it does not perform tree search."
+            )
 
     with c4:
         avg_time = filtered_move_log.groupby("algorithm")["duration_seconds"].mean()
@@ -367,17 +416,7 @@ with tab3:
         plt.xticks(rotation=45)
         st.pyplot(fig)
 
-    if show_advanced:
-        with st.expander("Advanced Matchup Metrics"):
-            fig, ax = plt.subplots()
-            filtered_game_log.groupby("matchup")["nodes_per_move"].mean().plot(
-                kind="bar", ax=ax
-            )
-            ax.set_title("Average Nodes per Move by Matchup")
-            ax.set_xlabel("Matchup")
-            ax.set_ylabel("Nodes per Move")
-            plt.xticks(rotation=45)
-            st.pyplot(fig)
+    
 
 # -----------------------------
 # TAB 4: GAME EXPLORER
@@ -419,6 +458,10 @@ with tab4:
         (move_log["game_id"] == selected_row["game_id"])
     ].sort_values("move_number")
 
+    selected_search_moves = selected_moves[
+        selected_moves["algorithm"].isin(["mcts", "minimax"])
+    ]
+
     st.write("### Selected Game Summary")
     st.dataframe(selected_game_summary, use_container_width=True)
 
@@ -426,22 +469,27 @@ with tab4:
 
     st.write("### Nodes Explored per Move")
 
-    fig, ax = plt.subplots()
+    if selected_search_moves.empty:
+        st.info("Node exploration is not shown because Random does not perform tree search.")
+    else:
+        fig, ax = plt.subplots()
 
-    for player_name in ["One", "Two"]:
-        subset = selected_moves[selected_moves["player"] == player_name]
-        ax.bar(
-            subset["move_number"],
-            subset["nodes_visited_per_move"],
-            label=f"Player {player_name}",
-            alpha=0.8
-        )
+        for player_name in ["One", "Two"]:
+            subset = selected_search_moves[selected_search_moves["player"] == player_name]
+            ax.bar(
+                subset["move_number"],
+                subset["nodes_visited_per_move"],
+                label=f"Player {player_name}",
+                alpha=0.8
+            )
 
-    ax.set_title("Nodes Explored per Move by Player")
-    ax.set_xlabel("Move Number")
-    ax.set_ylabel("Nodes per Move")
-    ax.legend()
-    st.pyplot(fig)
+        ax.set_title("Nodes Explored per Move by Search Algorithm")
+        ax.set_xlabel("Move Number")
+        ax.set_ylabel("Nodes per Move")
+        ax.legend()
+        st.pyplot(fig)
+
+        st.caption("Random is excluded because it does not perform tree search.")
 
     with g1:
         fig, ax = plt.subplots()
@@ -462,22 +510,27 @@ with tab4:
         st.pyplot(fig)
 
     with g2:
-        fig, ax = plt.subplots()
+        if selected_search_moves.empty:
+            st.info("Cumulative search nodes are not shown because Random does not perform tree search.")
+        else:
+            fig, ax = plt.subplots()
 
-        for player_name in ["One", "Two"]:
-            subset = selected_moves[selected_moves["player"] == player_name]
-            ax.plot(
-                subset["move_number"],
-                subset["nodes_visited_running_sum"],
-                marker="o",
-                label=f"Player {player_name}"
-            )
+            for player_name in ["One", "Two"]:
+                subset = selected_search_moves[selected_search_moves["player"] == player_name]
+                ax.plot(
+                    subset["move_number"],
+                    subset["nodes_visited_running_sum"],
+                    marker="o",
+                    label=f"Player {player_name}"
+                )
 
-        ax.set_title("Cumulative Node Exploration by Player")
-        ax.set_xlabel("Move Number")
-        ax.set_ylabel("Cumulative Nodes")
-        ax.legend()
-        st.pyplot(fig)
+            ax.set_title("Cumulative Search Nodes by Player")
+            ax.set_xlabel("Move Number")
+            ax.set_ylabel("Cumulative Search Nodes")
+            ax.legend()
+            st.pyplot(fig)
+
+            st.caption("Random is excluded because it does not perform tree search.")
 
     if show_advanced:
         with st.expander("Advanced Game Explorer"):
